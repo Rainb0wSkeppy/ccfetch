@@ -444,6 +444,15 @@ local logos = {
 		color      = "lightBlue",
 		blit_color = "3",
 	},
+	none = {
+		chars = {},
+		fg    = {},
+		bg    = {},
+		width      = 0,
+		height     = 0,
+		color      = "lightGray",
+		blit_color = "8",
+	}
 }
 
 local os_logos = {
