@@ -505,11 +505,14 @@ local set_fg
 local set_bg
 local blit
 local write = write or io.write
+local pause
+local config
+local load_file
+local save_file
 local args = arg or { ... }
 args[0] = nil
 
 if os_type == "craftos" or os_type == "recrafted" then
-	
 	local term = term
 	local rc = os
 	local fs = fs
@@ -551,12 +554,39 @@ if os_type == "craftos" or os_type == "recrafted" then
 		end
 	end
 	
+	function pause()
+		while true do
+			local event, key = os.pullEvent()
+			
+			if event == "key" then
+				if key == keys.enter then
+					break
+				end
+			end
+		end
+	end
+	
+	function load_file(path)
+		local f = fs.open(path, "r")
+		local s = f.readAll()
+		f.close()
+		
+		return s
+	end
+	
+	function save_file(path, s)
+		local f = fs.open(path, "w")
+		f.write(s)
+		f.close()
+	end
+	
 	blit = term.blit
 elseif os_type == "phoenix" then
 	local terminal = require("system.terminal")
 	local hardware = require("system.hardware")
 	local process  = require("system.process")
 	local util     = require("system.util")
+	local keys     = require("system.keys")
 	local fs       = require("system.filesystem")
 	
 	username      = process.getuser()
@@ -616,6 +646,92 @@ elseif os_type == "phoenix" then
 			write(c)
 		end
 	end
+	
+	function pause()
+		while true do
+			local event, args = util.pullEvent()
+			
+			if event == "key" then
+				if args.keycode == keys.enter then
+					break
+				end
+			end
+		end
+	end
+	
+	function load_file(path)
+		local f = fs.open(path, "r")
+		local s = f.readAll()
+		f.close()
+		
+		return s
+	end
+	
+	function save_file(path, s)
+		local f = fs.open(path, "w")
+		f.write(s)
+		f.close()
+	end
+end
+
+local function print_wrapped(s)
+	local x = 1
+	
+	for i in s:gmatch("[^ ]+ *") do
+		if x + #i + 1 > width then
+			print()
+			x = 1
+		end
+		
+		write(j)
+		
+		x = x + #j
+	end
+	
+	print()
+end
+
+local function print_paged(s)
+	local y = 1
+	
+	for i in s:gmatch("[^\n]*") do
+		local x = 1
+		
+		for j in i:gmatch("[^ ]*") do
+			if j == "" then
+				j = " "
+			end
+			
+			if x + #j + 1 > width then
+				if y == height - 1 then
+					print()
+					write("Press emter to continue to the next page")
+					pause()
+					y = 0
+				end
+				
+				print()
+				y = y + 1
+				x = 1
+			end
+			
+			write(j)
+			
+			x = x + #j
+		end
+		
+		if i == "" then
+			if y == height - 1 then
+				print()
+				write("Press enter to continue to the next page")
+				pause()
+				y = 0
+			end
+			
+			print()
+			y = y + 1
+		end
+	end
 end
 
 local logo = os_logos[os_name]
@@ -627,19 +743,19 @@ function println(a, b)
 		b = a
 		a = ""
 	else
-		a = a .. ": "
+		a = a .. config.separator
 	end
 	
 	if y <= logo.height then
 		blit(logo.chars[y], logo.fg[y], logo.bg[y])
 		set_bg("black")
 		set_fg("white")
-		write(" ")
+		write((" "):rep(config.gap))
 	else
-		write(string.rep(" ", logo.width + 1))
+		write(string.rep(" ", logo.width + config.gap))
 	end
 	
-	local max_b_width = width - logo.width - 2 - #a
+	local max_b_width = width - logo.width - config.gap - 1 - #a
 	
 	if #b > max_b_width then
 		b = string.sub(b, 1, max_b_width)
@@ -659,12 +775,12 @@ function blitln(s, fg, bg)
 		blit(logo.chars[y], logo.fg[y], logo.bg[y])
 		set_bg("black")
 		set_fg("white")
-		write(" ")
+		write((" "):rep(config.gap))
 	else
-		write(string.rep(" ", logo.width + 1))
+		write(string.rep(" ", logo.width + config.gap))
 	end
 	
-	local max_width = width - logo.width - 2
+	local max_width = width - logo.width - config.gap - 1
 	
 	if #s > max_width then
 		s  = string.sub(s,  1, max_width)
@@ -738,6 +854,41 @@ local colors_to_blit = {
 	black     = "f",
 }
 
+local function parse_config(s)
+	local config = load(s)() or {}
+	
+	config.logo      = config.logo      or nil
+	config.color     = config.color     or nil
+	config.separator = config.separator or ": "
+	config.gap       = config.gap       or 1
+	config.items     = config.items     or {
+		"title",
+		"title_line",
+		"os",
+		"host",
+		"uptime",
+		"packages",
+		"shell",
+		"term_size",
+		"lua_version",
+		"drives",
+		"blank",
+		"color_blocks",
+	}
+	
+	config.color_blocks = config.color_blocks or {
+		width = 2,
+		height = 1,
+	}
+	
+	config.color_blocks.width  = config.color_blocks.width  or 2
+	config.color_blocks.height = config.color_blocks.height or 1
+	
+	return config
+end
+
+local config_path = nil
+
 do
 	local i = 1
 	
@@ -745,12 +896,21 @@ do
 		j = args[i]
 		
 		if j == "-h" or j == "--help" then
-			print("Usage: ccfetch [-h] [-l name] [-c color] [-L] [-C]")
-			print("-h       --help        Print this message and exit")
-			print("-l name  --logo  name  Set the logo shown")   
-			print("-c color --color color Set the color of the text")
-			print("-L       --list-logos  List all logos")   
-			print("-C       --list-colors List all colors")   
+			print_paged([[
+Usages:
+  ccfetch [-l|--logo name] [-c|--color color] [-C|--config path]
+  ccfetch -h|--help|--list-logos|--list-colors
+  ccfetch --gen-config path path
+
+-h       --help        Print this message and exit
+-l name  --logo  name  Set the logo shown
+-c color --color color Set the color of the text
+-C path  --config path Use the specified config file
+
+--list-logos           List all logos
+--list-colors          List all colors
+--gen-config path      Generate the default config at the specified path. WILL OVERRIDE WHATEVER FILE IS AT THAT PATH
+]]) 
 			
 			return
 		elseif j == "-l" or j == "--logo" then
@@ -760,29 +920,96 @@ do
 			i = i + 1
 			logo.color = args[i] or error("Invalid color " .. args[i] .. ", use -C to see all colors")
 			logo.blit_color = colors_to_blit[args[i]]
-		elseif j == "-C" or j == "--list-colors" then
-			print("All colors:")
+		elseif j == "-C" or j == "--config" then
+			i = i + 1
+			config_path = args[i]
+		elseif j == "--list-colors" then
 			
-			print("white,     orange,   magenta,  lightBlue,")
-			print("yellow,    lime,     pink,     gray,")
-			print("lightGray, cyan,     purple,   blue,")
-			print("purple,    green,    red,      black")
+			print_paged([[
+All colors:
+white,     orange,   magenta,  lightBlue,
+yellow,    lime,     pink,     gray,
+lightGray, cyan,     purple,   blue,
+purple,    green,    red,      black
+]])
 			
 			return
-		elseif j == "-L" or j == "--list-logos" then
-			print("All logos:")
+		elseif j == "--list-logos" then
+			local s = "All logos:\n"
 			
-			local s = ""
-			
-			for i in pairs(logos) do
+			for i, j in pairs(logos) do
 				s = s .. i .. ", "
 			end
 			
 			s = s:sub(1, -3)
 			
-			for i = 1, #s, width do
-				print(s:sub(i, i + width - 1))
-			end
+			print_paged(s)
+			
+			return
+		elseif j == "--gen-config" then
+			i = i + 1
+			save_file(args[i],
+			          [[
+return {
+-- What logo to use. --logo will override this.
+-- Use ccfetch --list-logos for a list of
+-- available logos.
+  logo  = nil,
+  
+-- What color to use. --color will override this.
+-- Use ccfetch --list-colors for a list of
+-- available colors.
+  color = "",
+  
+-- What separator to use.
+  separator = ": ",
+  
+-- How wide the gap between the logo and items is.
+  gap = 1,
+  
+-- What items should be used.
+-- Availible items are:
+--   title
+--   title_line
+--   os
+--   host
+--   uptime
+--   packages
+--   shell
+--   term_size
+--   lua_version
+--   drives
+--   blank
+--   color_blocks
+  items = {
+    "title",
+    "title_line",
+    "os",
+    "host",
+    "uptime",
+    "packages",
+    "shell",
+    "term_size",
+    "lua_version",
+    "drives",
+    "blank",
+    "color_blocks",
+  },
+  
+-- Item specific configuration
+  
+-- Color blocks
+  color_blocks = {
+--   How wide a color block should be,
+--   in characters
+    width = 2,
+    
+--   How high a color block should be,
+--   in characters
+    height = 1,
+  }
+}
+]])
 			
 			return
 		else
@@ -793,59 +1020,124 @@ do
 	end
 end
 
-if username ~= nil then
-	blitln(username .. "@" .. hostname,
-	       logo.blit_color:rep(#username)
-	    .. "0"
-	    .. logo.blit_color:rep(#hostname),
-	       ("f"):rep(#username + #hostname + 1))
-	
-	println(("-"):rep(#username + #hostname + 1))
-else
-	blitln(hostname,
-	       logo.blit_color:rep(#hostname),
-	       ("f"):rep(#hostname))
-	
-	println(("-"):rep(#hostname))
-end
+config = parse_config(config_path and load_file(config_path) or "")
 
-println("OS", os_name .. " " .. os_version)
-println("Host", host)
+logo  = config.logo  or logo
+color = config.color or color
 
-if kernel then
-	println("Kernel", kernel)
-end
+local items = {}
 
-if uptime then
-	println("Uptime", time_to_s(uptime))
-end
-
-if packages then
-	println("Packages", packages)
-end
-
-if shell then
-	println("Shell", shell)
-end
-
-println("Terminal size", tostring(width) .. "x" .. tostring(height))
-println("Lua version", lua_version)
-
-if drives then
-	for i, j in pairs(drives) do
-		println(i, size_to_s(j.used) .. "/" .. size_to_s(j.size))
+function items.title()
+	if username ~= nil then
+		blitln(username .. "@" .. hostname,
+		       logo.blit_color:rep(#username)
+		    .. "0"
+		    .. logo.blit_color:rep(#hostname),
+		       ("f"):rep(#username + #hostname + 1))
+	else
+		blitln(hostname,
+		       logo.blit_color:rep(#hostname),
+		       ("f"):rep(#hostname))
 	end
 end
 
-println("")
+function items.title_line()
+	if username ~= nil then
+		println(("-"):rep(#username + #hostname + 1))
+	else
+		println(("-"):rep(#hostname))
+	end
+end
 
-blitln("                ",
-       "0000000000000000",
-       "0011223344556677")
+function items.os()
+	println("OS", os_name .. " " .. os_version)
+end
 
-blitln("                ",
-       "0000000000000000",
-       "8899aabbccddeeff")
+function items.host()
+	println("Host", host)
+end
+
+function items.kernel()
+	if kernel then
+		println("Kernel", kernel)
+	end
+end
+
+function items.uptime()
+	if uptime then
+		println("Uptime", time_to_s(uptime))
+	end
+end
+
+function items.packages()
+	if packages then
+		println("Packages", packages)
+	end
+end
+
+function items.shell()
+	if shell then
+		println("Shell", shell)
+	end
+end
+
+function items.term_size()
+	println("Terminal size", tostring(width) .. "x" .. tostring(height))
+end
+
+function items.lua_version()
+	println("Lua version", lua_version)
+end
+
+function items.drives()
+	if drives then
+		for i, j in pairs(drives) do
+			println(i, size_to_s(j.used) .. "/" .. size_to_s(j.size))
+		end
+	end
+end
+
+function items.blank()
+	println("")
+end
+
+function items.color_blocks()
+	for i = 1, config.color_blocks.height do
+		local s  = ""
+		local fg = ""
+		local bg = ""
+		
+		for _, j in ipairs({"0", "1", "2", "3", "4", "5", "6", "7"}) do
+			s  = s  .. (" "):rep(config.color_blocks.width)
+			fg = fg .. j:rep(config.color_blocks.width)
+			bg = bg .. j:rep(config.color_blocks.width)
+		end
+		
+		blitln(s,
+		       fg,
+		       bg)
+	end
+	
+	for i = 1, config.color_blocks.height do
+		local s  = ""
+		local fg = ""
+		local bg = ""
+		
+		for _, j in ipairs({"8", "9", "a", "b", "c", "d", "e", "f"}) do
+			s  = s  .. (" "):rep(config.color_blocks.width)
+			fg = fg .. j:rep(config.color_blocks.width)
+			bg = bg .. j:rep(config.color_blocks.width)
+		end
+		
+		blitln(s,
+		       fg,
+		       bg)
+	end
+end
+
+for _, i in ipairs(config.items) do
+	items[i]()
+end
 
 for i = y, logo.height do
 	blit(logo.chars[i], logo.fg[i], logo.bg[i])
