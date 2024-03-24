@@ -498,6 +498,8 @@ local uptime
 local packages
 local shell
 local width, height
+local wm
+local de
 local lua_version  = _VERSION
 local drives = {}
 
@@ -870,6 +872,8 @@ local function parse_config(s)
 		"packages",
 		"shell",
 		"term_size",
+		"wm",
+		"de",
 		"lua_version",
 		"drives",
 		"blank",
@@ -977,6 +981,8 @@ return {
 --   packages
 --   shell
 --   term_size
+--   wm
+--   de
 --   lua_version
 --   drives
 --   blank
@@ -990,6 +996,8 @@ return {
     "packages",
     "shell",
     "term_size",
+    "wm",
+    "de",
     "lua_version",
     "drives",
     "blank",
@@ -1083,6 +1091,14 @@ end
 
 function items.term_size()
 	println("Terminal size", tostring(width) .. "x" .. tostring(height))
+end
+
+function items.wm()
+	println("WM", wm)
+end
+
+function items.de()
+	println("DE", de)
 end
 
 function items.lua_version()
