@@ -1094,11 +1094,15 @@ function items.term_size()
 end
 
 function items.wm()
-	println("WM", wm)
+	if wm then
+		println("WM", wm)
+	end
 end
 
 function items.de()
-	println("DE", de)
+	if de then
+		println("DE", de)
+	end
 end
 
 function items.lua_version()
